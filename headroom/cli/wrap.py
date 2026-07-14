@@ -4712,8 +4712,15 @@ def _prepare_codex_wrap_state(
     memory: bool,
     verbose: bool,
     rtk_home: Path | None = None,
-) -> None:
-    """Prepare the active Codex home for a wrap or prepare-only invocation."""
+) -> str | None:
+    """Prepare the active Codex home for a wrap or prepare-only invocation.
+
+    Returns the custom upstream base URL detected in the user's Codex config
+    (or None). Callers that launch Codex must export this into
+    ``HEADROOM_CODEX_UPSTREAM_BASE_URL`` so the injected provider's
+    ``X-Headroom-Base-Url`` header carries it; otherwise the proxy falls back to
+    ``api.openai.com`` and the user's gateway key is sent to the wrong host.
+    """
     # Snapshot Codex config.toml BEFORE any wrap-time mutation so
     # `headroom unwrap codex` can restore the user's pre-wrap state
     # byte-for-byte. The snapshot is a no-op if the backup already exists
@@ -4808,9 +4815,10 @@ def _prepare_codex_wrap_state(
     # transport unless a custom provider declares supports_websockets = true.
     # NOTE: this must run BEFORE _inject_memory_mcp_config because it rewrites
     # the config file.  Re-inject MCP config after if memory is enabled.
-    _inject_codex_provider_config(port)
+    custom_upstream = _inject_codex_provider_config(port)
     if memory:
         _inject_memory_mcp_config(os.environ.get("USER", os.environ.get("USERNAME", "default")))
+    return custom_upstream
 
 
 def _run_codex_wrap(
@@ -4854,7 +4862,7 @@ def _run_codex_wrap(
 
     active_codex_home = _codex_home_dir()
     with _codex_session_home_overlay() as session_codex_home:
-        _prepare_codex_wrap_state(
+        custom_upstream = _prepare_codex_wrap_state(
             port=port,
             no_rtk=no_rtk,
             no_mcp=no_mcp,
@@ -4867,6 +4875,15 @@ def _run_codex_wrap(
         )
 
         env, env_vars_display = _build_codex_launch_env(port, os.environ)
+
+        # Export the detected custom upstream so Codex actually emits the
+        # X-Headroom-Base-Url header the injected provider declares. Without
+        # this the proxy falls back to api.openai.com and a user with an
+        # OpenAI-compatible gateway in ~/.codex/config.toml has their gateway
+        # key sent to OpenAI (regression of #1614). A user-set value wins.
+        if custom_upstream and _UPSTREAM_BASE_URL_ENV_VAR not in env:
+            env[_UPSTREAM_BASE_URL_ENV_VAR] = custom_upstream
+            env_vars_display.append(f"{_UPSTREAM_BASE_URL_ENV_VAR}={custom_upstream}")
 
         # Per-project savings attribution: the injected provider config maps the
         # X-Headroom-Project header to HEADROOM_PROJECT via env_http_headers, so
