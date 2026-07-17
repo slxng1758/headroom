@@ -445,7 +445,12 @@ def _anthropic_usage_from_litellm(litellm_usage: Any) -> dict[str, Any]:
     prompt_tokens = int(getattr(litellm_usage, "prompt_tokens", 0) or 0)
     usage: dict[str, Any] = {
         "input_tokens": max(prompt_tokens - cache_read - cache_write, 0),
-        "output_tokens": getattr(litellm_usage, "completion_tokens", 0),
+        # None-guard like the other fields: LiteLLM's Usage always carries the
+        # completion_tokens attribute, so the getattr default never fires, but a
+        # provider can leave it None. Emitting output_tokens=None would break the
+        # RequestOutcome int contract downstream (e.g. prometheus does
+        # tokens_output_total += output_tokens -> TypeError).
+        "output_tokens": int(getattr(litellm_usage, "completion_tokens", 0) or 0),
     }
     if cache_read or cache_write:
         usage["cache_read_input_tokens"] = cache_read
