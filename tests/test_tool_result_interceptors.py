@@ -211,6 +211,42 @@ def test_astgrep_outlines_large_python_read(tokenizer):
     assert "def apply_promo" in new_content
     # Bodies should NOT leak through unchanged.
     assert "total += item.price * item.qty" not in new_content
+    # Complete-file control: no truncation banner in the input -> no truncation marker.
+    assert "truncated upstream" not in new_content
+
+
+def test_astgrep_flags_truncated_read(tokenizer):
+    truncated_source = (
+        _PY_FIXTURE
+        + "\n\n[Truncated: PARTIAL view — /repo/payments.py: "
+        "showing lines 1-42 of 90 total (26031 tokens, cap 25000). "
+        "Call Read with offset=43 to see more.]\n"
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "abc",
+                    "name": "Read",
+                    "input": {"file_path": "/repo/payments.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "abc", "content": truncated_source}],
+        },
+    ]
+    result = apply_to_messages(messages, tokenizer)
+    assert len(result.spans) == 1
+    new_content = result.messages[1]["content"][0]["content"]
+    assert "truncated upstream" in new_content
+    assert "showing through line 42 of 90 total" in new_content
+    # Still lists the definitions actually present in the visible portion.
+    assert "def process_payment" in new_content
+    assert "def apply_promo" in new_content
 
 
 def test_astgrep_skips_small_files(tokenizer):
