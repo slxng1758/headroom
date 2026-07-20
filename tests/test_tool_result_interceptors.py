@@ -249,6 +249,37 @@ def test_astgrep_flags_truncated_read(tokenizer):
     assert "def apply_promo" in new_content
 
 
+def test_astgrep_flags_truncated_read_wording_variants(tokenizer):
+    """Loosened regex should match reasonable wording variants, not just Claude Code's
+    exact phrasing — different casing, en-dash instead of hyphen, extra whitespace."""
+    truncated_source = (
+        _PY_FIXTURE
+        + "\n\nSHOWING  LINES 1–42  of 90  TOTAL. Call Read with offset=43 to see more.\n"
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "abc",
+                    "name": "Read",
+                    "input": {"file_path": "/repo/payments.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "abc", "content": truncated_source}],
+        },
+    ]
+    result = apply_to_messages(messages, tokenizer)
+    assert len(result.spans) == 1
+    new_content = result.messages[1]["content"][0]["content"]
+    assert "truncated upstream" in new_content
+    assert "showing through line 42 of 90 total" in new_content
+
+
 def test_astgrep_skips_small_files(tokenizer):
     small = "def foo(): return 1\n"
     messages = [

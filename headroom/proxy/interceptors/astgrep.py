@@ -89,12 +89,14 @@ _PATTERNS: dict[str, list[str]] = {
 
 OUTLINE_MARKER = "    # ... (body elided by Headroom; Read a specific line range to see it)\n"
 
-# Matches the upstream truncation banner a client (e.g. Claude Code) appends to a
-# Read tool_result when its own token cap — independent of any Headroom cap — cuts
-# the file short, e.g. "...showing lines 1-1489 of 1825 total...". Captures
-# (end_line, total_lines) — the only numbers Headroom can honestly report, since
-# they come from the client's own accounting, not a Headroom guess.
-_TRUNCATION_RE = re.compile(r"showing lines \d+-(?P<end_line>\d+) of (?P<total_lines>\d+) total")
+# Matches a line-based truncation notice emitted by a client
+# when its own token cap cuts a Read result short, e.g. "showing lines 1-1489
+# of 1825 total". Captures the client-provided line counts that Headroom can
+# safely report without guessing. Tolerates common formatting variations
+_TRUNCATION_RE = re.compile(
+    r"showing\s+lines?\s+\d+\s*[-–]\s*(?P<end_line>\d+)\s+of\s+(?P<total_lines>\d+)\s+total",
+    re.IGNORECASE,
+)
 
 
 def _detect_truncation(source: str) -> tuple[int, int] | None:
